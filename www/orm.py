@@ -34,12 +34,15 @@ async def destory_pool():
         await pool.wait_closed()
 #要执行SELECT语句，我们用select函数执行，需要传入SQL语句和SQL参数：
 #sql 参数就是查询语句
+#查
 @asyncio.coroutine
 def select(sql, args, size=None):
     log(sql, args)
     global __pool
     with (yield from __pool) as conn:
+        # 查询的返回格式会变成字典格式
         cur = yield from conn.cursor(aiomysql.DictCursor)
+        # SQL语句的占位符是?，而MySQL的占位符是%s  ?-old, %s-new
         yield from cur.execute(sql.replace('?', '%s'), args or ())
         if size:
             rs = yield from cur.fetchmany(size)
@@ -51,6 +54,7 @@ def select(sql, args, size=None):
 
 #要执行INSERT、UPDATE、DELETE语句，可以定义一个通用的execute()函数，因为这3种SQL的执行都需要相同的参数，以及返回一个整数表示影响的行数
 #cursor对象不返回结果集，而是通过rowcount返回结果数。
+#增，删，改
 @asyncio.coroutine
 def execute(sql, args):
     log(sql)
@@ -71,6 +75,7 @@ def create_args_string(num):
         L.append('?')
     return ', '.join(L)
 
+#保存数据库表的字段名和字段类型,
 class Field(object):
 
     def __init__(self, name, column_type, primary_key, default):
@@ -78,7 +83,7 @@ class Field(object):
         self.column_type = column_type
         self.primary_key = primary_key
         self.default = default
-
+    #当你打印一个类的时候，那么print首先调用的就是类里面的定义的__str__
     def __str__(self):
         return '<%s, %s:%s>' % (self.__class__.__name__, self.column_type, self.name)
 
@@ -112,9 +117,12 @@ class TextField(Field):
 class ModelMetaclass(type):
 
     def __new__(cls, name, bases, attrs):
-        # 排除Model类本身:
+        # 排除掉对Model类的修改；
         if name=='Model':
             return type.__new__(cls, name, bases, attrs)
+
+        #在当前类（比如User）中查找定义的类的所有属性，如果找到一个Field属性，就把它保存到一个__mappings__的dict中，
+        # 同时从类属性中删除该Field属性，否则，容易造成运行时错误（实例的属性会遮盖类的同名属性）；
         # 获取table名称:
         tableName = attrs.get('__table__', None) or name
         logging.info('found model: %s (table: %s)' % (name, tableName))
@@ -139,7 +147,7 @@ class ModelMetaclass(type):
             attrs.pop(k)
         escaped_fields = list(map(lambda f: '`%s`' % f, fields))
         attrs['__mappings__'] = mappings # 保存属性和列的映射关系
-        attrs['__table__'] = tableName
+        attrs['__table__'] = tableName  # 假设表名和类名一致
         attrs['__primary_key__'] = primaryKey # 主键属性名
         attrs['__fields__'] = fields # 除主键外的属性名
         # 构造默认的SELECT, INSERT, UPDATE和DELETE语句:
@@ -188,6 +196,7 @@ class Model(dict, metaclass=ModelMetaclass):
     def getValue(self, key):
         return getattr(self, key, None)
 
+    #getValueOrDefault函数，是在value值找不到时返回默认值
     def getValueOrDefault(self, key):
         value = getattr(self, key, None)
         if value is None:
@@ -236,7 +245,7 @@ class Model(dict, metaclass=ModelMetaclass):
         if len(rs) == 0:
             return None
         return rs[0]['_num_']
-
+    #在Model类中，就可以定义各种操作数据库的方法，比如save()，delete()，find()，update等等。
     @classmethod
     async def find(cls, pk):
         ' find object by primary key. '
@@ -264,3 +273,4 @@ class Model(dict, metaclass=ModelMetaclass):
         rows = await execute(self.__delete__, args)
         if rows != 1:
             logging.warn('failed to remove by primary key: affected rows: %s' % rows)
+
